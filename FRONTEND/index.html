@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GCROS — Garbage Collection Route Optimization System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;600;700;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0a0f0d;
+    --surface: #111a14;
+    --surface2: #172010;
+    --border: #1f3323;
+    --accent: #39ff7a;
+    --accent2: #00e5ff;
+    --warn: #ffb627;
+    --danger: #ff3d5a;
+    --text: #d4e8d8;
+    --muted: #5a7a62;
+    --depot-color: #ff6b35;
+    --bin-color: #39ff7a;
+    --route-color: #00e5ff;
+    --tsp-color: #ffb627;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: var(--accent);
+    clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .logo-text {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 900;
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: #fff;
+  }
+  .logo-sub {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+  }
+  .header-stats {
+    display: flex; gap: 32px;
+  }
+  .hstat {
+    text-align: center;
+  }
+  .hstat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .hstat-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .header-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 4px;
+  }
+
+  /* LAYOUT */
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto auto;
+    gap: 0;
+    height: calc(100vh - 60px);
+  }
+
+  /* LEFT PANEL — Map */
+  .map-panel {
+    position: relative;
+    grid-row: 1 / 3;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .panel-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title::before {
+    content: '';
+    display: block;
+    width: 3px; height: 16px;
+    background: var(--accent);
+  }
+  .map-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+  .btn.depot { border-color: var(--depot-color); color: var(--depot-color); }
+  .btn.depot.active, .btn.depot:hover { background: var(--depot-color); color: #000; }
+  .btn.bin { border-color: var(--bin-color); color: var(--bin-color); }
+  .btn.bin.active, .btn.bin:hover { background: var(--bin-color); color: #000; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+  .btn.primary { border-color: var(--accent2); color: var(--accent2); }
+  .btn.primary:hover, .btn.primary.active { background: var(--accent2); color: #000; }
+  .btn.warn { border-color: var(--warn); color: var(--warn); }
+  .btn.warn:hover, .btn.warn.active { background: var(--warn); color: #000; }
+
+  #map {
+    flex: 1;
+    width: 100%;
+    background: #0c1410;
+  }
+
+  .map-legend {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px; color: var(--muted);
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .legend-line {
+    width: 20px; height: 2px;
+  }
+
+  /* Algorithm info bar */
+  .algo-bar {
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    padding: 8px 20px;
+    display: flex;
+    gap: 24px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .algo-stat { display: flex; align-items: center; gap: 8px; }
+  .algo-label { color: var(--muted); }
+  .algo-val { color: var(--accent); }
+  .algo-val.cyan { color: var(--accent2); }
+  .algo-val.warn { color: var(--warn); }
+
+  /* RIGHT PANEL */
+  .right-panels {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    background: var(--bg);
+  }
+  .section-panel {
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .section-panel .panel-header {
+    cursor: pointer;
+    user-select: none;
+  }
+  .section-panel .panel-header:hover { background: var(--surface2); }
+  .section-body {
+    padding: 16px;
+  }
+
+  /* Driver Section */
+  .category-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .category-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .driver-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+  .driver-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    transition: border-color 0.2s;
+  }
+  .driver-card:hover { border-color: var(--muted); }
+  .driver-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .avatar-duty { background: rgba(57,255,122,0.15); color: var(--accent); border: 1px solid var(--accent); }
+  .avatar-leave { background: rgba(255,182,39,0.15); color: var(--warn); border: 1px solid var(--warn); }
+  .avatar-avail { background: rgba(0,229,255,0.15); color: var(--accent2); border: 1px solid var(--accent2); }
+  .driver-info { flex: 1; min-width: 0; }
+  .driver-name { font-weight: 500; font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .driver-id { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); }
+  .status-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .badge-duty { background: rgba(57,255,122,0.15); color: var(--accent); border: 1px solid rgba(57,255,122,0.3); }
+  .badge-leave { background: rgba(255,182,39,0.15); color: var(--warn); border: 1px solid rgba(255,182,39,0.3); }
+  .badge-avail { background: rgba(0,229,255,0.15); color: var(--accent2); border: 1px solid rgba(0,229,255,0.3); }
+
+  /* Truck Section */
+  .truck-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    transition: border-color 0.2s;
+  }
+  .truck-card:hover { border-color: var(--muted); }
+  .truck-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    width: 30px;
+    text-align: center;
+  }
+  .truck-info { flex: 1; min-width: 0; }
+  .truck-model { font-weight: 500; font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .truck-id { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); }
+
+  /* Completed Section */
+  .progress-main {
+    margin-bottom: 16px;
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .progress-pct {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 36px;
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .progress-label { font-size: 11px; color: var(--muted); }
+  .progress-bar-wrap {
+    height: 8px;
+    background: var(--surface);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, #00ff99 100%);
+    border-radius: 4px;
+    transition: width 0.6s ease;
+    position: relative;
+  }
+  .progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 6px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 2px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+
+  .completion-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .cstat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .cstat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .cstat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .col-green { color: var(--accent); }
+  .col-red { color: var(--danger); }
+  .col-cyan { color: var(--accent2); }
+  .col-warn { color: var(--warn); }
+
+  .mini-progress {
+    margin-bottom: 6px;
+  }
+  .mini-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .mini-bar {
+    height: 4px;
+    background: var(--surface);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .mini-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s;
+  }
+
+  /* Route log */
+  .route-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .route-log::-webkit-scrollbar { width: 4px; }
+  .route-log::-webkit-scrollbar-track { background: var(--bg); }
+  .route-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .log-entry { display: flex; gap: 8px; }
+  .log-time { color: var(--accent); flex-shrink: 0; }
+  .log-msg { color: var(--text); }
+  .log-msg.warn { color: var(--warn); }
+  .log-msg.info { color: var(--accent2); }
+  .log-msg.err { color: var(--danger); }
+
+  /* Notification */
+  .notif {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--accent);
+    z-index: 9999;
+    font-family: 'Space Mono', monospace;
+    transform: translateX(120%);
+    transition: transform 0.3s;
+    max-width: 280px;
+  }
+  .notif.show { transform: translateX(0); }
+  .notif.warn { border-color: var(--warn); color: var(--warn); }
+  .notif.err { border-color: var(--danger); color: var(--danger); }
+
+  /* Tooltip */
+  .map-mode-indicator {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,15,13,0.9);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    padding: 6px 16px;
+    border-radius: 3px;
+    z-index: 999;
+    pointer-events: none;
+    display: none;
+  }
+  .map-mode-indicator.active { display: block; }
+
+  /* Custom Leaflet popups */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+  }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { color: var(--text) !important; font-family: 'Barlow', sans-serif !important; font-size: 12px !important; }
+
+  .collapse-icon { transition: transform 0.2s; margin-left: auto; color: var(--muted); font-size: 10px; }
+  .collapsed .collapse-icon { transform: rotate(-90deg); }
+  .section-panel .section-body { display: block; }
+  .section-panel.collapsed .section-body { display: none; }
+
+  /* Separator in header */
+  .sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+  /* Blinking status dot */
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green { background: var(--accent); animation: blink 2s ease-in-out infinite; }
+  .dot-yellow { background: var(--warn); }
+  .dot-cyan { background: var(--accent2); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Scrollbar */
+  .right-panels::-webkit-scrollbar { width: 4px; }
+  .right-panels::-webkit-scrollbar-track { background: var(--bg); }
+  .right-panels::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* Mobile adjustments */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
+    .map-panel { grid-row: 1; border-right: none; border-bottom: 1px solid var(--border); }
+    .right-panels { grid-row: 2; overflow-y: auto; }
+    .header-stats { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">♻</div>
+    <div>
+      <div class="logo-text">GCROS</div>
+      <div class="logo-sub">GARBAGE COLLECTION ROUTE OPTIMIZATION</div>
+    </div>
+  </div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="hstat-val" id="h-depots">0</div>
+      <div class="hstat-label">Depots</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-bins">0</div>
+      <div class="hstat-label">Bin Points</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-route">—</div>
+      <div class="hstat-label">Route KM</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-eta">—</div>
+      <div class="hstat-label">ETA (min)</div>
+    </div>
+  </div>
+  <div class="header-time" id="clock">—</div>
+</header>
+
+<div class="app">
+  <!-- MAP PANEL -->
+  <div class="map-panel">
+    <div class="panel-header">
+      <div class="panel-title">🗺 Bangalore — Interactive Route Map</div>
+      <div class="map-controls">
+        <button type="button" class="btn depot" id="btn-depot" onclick="setMode('depot')">+ ADD DEPOT</button>
+        <button type = "button" class="btn bin" id="btn-bin" onclick="setMode('bin')">+ ADD BIN</button>
+        <div class="sep"></div>
+        <button type = "button" class="btn primary" id="btn-greedy" onclick="runGreedy()">▶ GREEDY</button>
+        <button type = "button" class="btn warn" id="btn-tsp" onclick="runTSP()">▶ TSP</button>
+        <div class="sep"></div>
+        <button type = "button " class="btn" onclick="clearRoutes()">CLR ROUTES</button>
+        <button type = "button" class="btn danger" onclick="clearAll()">RESET ALL</button>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="map-mode-indicator" id="mode-indicator"></div>
+    <div class="algo-bar">
+      <div class="algo-stat"><span class="algo-label">MODE:</span><span class="algo-val" id="a-mode">IDLE</span></div>
+      <div class="algo-stat"><span class="algo-label">GREEDY DIST:</span><span class="algo-val cyan" id="a-greedy">—</span></div>
+      <div class="algo-stat"><span class="algo-label">TSP DIST:</span><span class="algo-val warn" id="a-tsp">—</span></div>
+      <div class="algo-stat"><span class="algo-label">IMPROVEMENT:</span><span class="algo-val col-green" id="a-improve">—</span></div>
+      <div class="algo-stat"><span class="algo-label">STOPS:</span><span class="algo-val" id="a-stops">0</span></div>
+    </div>
+    <div class="map-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--depot-color)"></div>Depot</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--bin-color)"></div>Bin Point</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--route-color)"></div>Greedy Route</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--tsp-color); height:3px"></div>TSP Route</div>
+      <div class="legend-item" style="margin-left:auto; color:var(--muted); font-size:10px; font-family:'Space Mono',monospace">Click map to place points</div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANELS -->
+  <div class="right-panels">
+
+    <!-- COMPLETED SECTION -->
+    <div class="section-panel" id="sec-completed">
+      <div class="panel-header" onclick="toggleSection('sec-completed')">
+        <div class="panel-title">📊 Collection Progress</div>
+        <span class="collapse-icon">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="progress-main">
+          <div class="progress-header">
+            <div class="progress-pct" id="pct-display">0%</div>
+            <div class="progress-label">Bins Collected</div>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="main-progress" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="completion-stats">
+          <div class="cstat">
+            <div class="cstat-val col-green" id="c-done">0</div>
+            <div class="cstat-label">Collected</div>
+          </div>
+          <div class="cstat">
+            <div class="cstat-val col-red" id="c-remain">0</div>
+            <div class="cstat-label">Remaining</div>
+          </div>
+          <div class="cstat">
+            <div class="cstat-val col-cyan" id="c-eta">—</div>
+            <div class="cstat-label">ETA (min)</div>
+          </div>
+          <div class="cstat">
+            <div class="cstat-val col-warn" id="c-dist">0 km</div>
+            <div class="cstat-label">Distance</div>
+          </div>
+        </div>
+        <div class="mini-progress">
+          <div class="mini-label"><span>North Zone</span><span id="z-north">0%</span></div>
+          <div class="mini-bar"><div class="mini-fill" id="z-north-bar" style="width:0%; background:var(--accent)"></div></div>
+        </div>
+        <div class="mini-progress">
+          <div class="mini-label"><span>South Zone</span><span id="z-south">0%</span></div>
+          <div class="mini-bar"><div class="mini-fill" id="z-south-bar" style="width:0%; background:var(--accent2)"></div></div>
+        </div>
+        <div class="mini-progress">
+          <div class="mini-label"><span>East Zone</span><span id="z-east">0%</span></div>
+          <div class="mini-bar"><div class="mini-fill" id="z-east-bar" style="width:0%; background:var(--warn)"></div></div>
+        </div>
+        <div class="mini-progress" style="margin-bottom:14px">
+          <div class="mini-label"><span>West Zone</span><span id="z-west">0%</span></div>
+          <div class="mini-bar"><div class="mini-fill" id="z-west-bar" style="width:0%; background:var(--danger)"></div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="btn primary" style="flex:1" onclick="simulateProgress()">▶ SIMULATE</button>
+          <button class="btn" onclick="resetProgress()">↺ RESET</button>
+        </div>
+        <div class="route-log" id="route-log">
+          <div class="log-entry"><span class="log-time">00:00</span><span class="log-msg info">System initialized — Bangalore GCROS ready.</span></div>
+          <div class="log-entry"><span class="log-time">00:01</span><span class="log-msg">Click map to add depots and bin points.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DRIVER SECTION -->
+    <div class="section-panel" id="sec-drivers">
+      <div class="panel-header" onclick="toggleSection('sec-drivers')">
+        <div class="panel-title">👤 Driver Management</div>
+        <span class="collapse-icon">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="category-label"><div class="dot dot-green"></div>ON DUTY</div>
+        <div class="driver-list" id="list-duty"></div>
+        <div class="category-label"><div class="dot dot-cyan"></div>AVAILABLE</div>
+        <div class="driver-list" id="list-avail"></div>
+        <div class="category-label"><div class="dot dot-yellow"></div>ON LEAVE</div>
+        <div class="driver-list" id="list-leave"></div>
+      </div>
+    </div>
+
+    <!-- TRUCK SECTION -->
+    <div class="section-panel" id="sec-trucks">
+      <div class="panel-header" onclick="toggleSection('sec-trucks')">
+        <div class="panel-title">🚛 Truck Fleet</div>
+        <span class="collapse-icon">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="category-label"><div class="dot dot-green"></div>IN USE</div>
+        <div id="list-inuse"></div>
+        <div class="category-label"><div class="dot dot-cyan"></div>AVAILABLE</div>
+        <div id="list-tavail"></div>
+        <div class="category-label"><div class="dot dot-yellow"></div>MAINTENANCE</div>
+        <div id="list-maint"></div>
+      </div>
+    </div>
+
+  </div><!-- /right-panels -->
+</div><!-- /app -->
+
+<div class="notif" id="notif"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════════
+const DRIVERS = {
+  duty: [
+    { name: 'Ravi Kumar',     id: 'DRV-001', zone: 'North' },
+    { name: 'Suresh Nair',    id: 'DRV-002', zone: 'South' },
+    { name: 'Mohan Das',      id: 'DRV-003', zone: 'East'  },
+    { name: 'Anand Reddy',    id: 'DRV-004', zone: 'West'  },
+    { name: 'Venkat Rao',     id: 'DRV-005', zone: 'Central'},
+  ],
+  available: [
+    { name: 'Pradeep Singh',  id: 'DRV-006', zone: '—' },
+    { name: 'Kiran Sharma',   id: 'DRV-007', zone: '—' },
+    { name: 'Nagaraj B.',     id: 'DRV-008', zone: '—' },
+  ],
+  leave: [
+    { name: 'Sanjay Patil',   id: 'DRV-009', zone: '—' },
+    { name: 'Ramesh Gowda',   id: 'DRV-010', zone: '—' },
+  ]
+};
+
+const TRUCKS = {
+  inuse: [
+    { model: 'Tata LPT 1109', id: 'TRK-001', capacity: '6T'  },
+    { model: 'Ashok Leyland Dost', id: 'TRK-002', capacity: '2T' },
+    { model: 'Eicher Pro 2049', id: 'TRK-003', capacity: '5T' },
+    { model: 'Mahindra Treo',  id: 'TRK-004', capacity: '0.5T' },
+    { model: 'Tata Ultra 614', id: 'TRK-005', capacity: '4T' },
+  ],
+  available: [
+    { model: 'Bharat Benz 1617', id: 'TRK-006', capacity: '7T' },
+    { model: 'Force Trump 40',   id: 'TRK-007', capacity: '3T' },
+    { model: 'Tata Ace Gold',    id: 'TRK-008', capacity: '1T' },
+  ],
+  maintenance: [
+    { model: 'Ashok Leyland Boss', id: 'TRK-009', capacity: '8T' },
+    { model: 'Tata LPT 1515',     id: 'TRK-010', capacity: '7T' },
+  ]
+};
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let mode = 'none'; // 'depot' | 'bin' | 'none'
+let depots = [];
+let bins = [];
+let greedyPolyline = null;
+let tspPolyline = null;
+let markers = [];
+let progress = 0;
+let simulationInterval = null;
+let logTime = 2;
+
+// ═══════════════════════════════════════════════
+//  MAP INIT
+// ═══════════════════════════════════════════════
+const map = L.map('map', {
+  center: [12.9716, 77.5946],
+  zoom: 12,
+  zoomControl: true,
+  attributionControl: false
+});
+
+// Dark tile layer
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 19,
+  attribution: '© OpenStreetMap © CARTO'
+}).addTo(map);
+
+L.control.attribution({ prefix: '© OSM / CARTO' }).addTo(map);
+
+// Area labels only (lighter layer)
+// Map click
+map.on('click', (e) => {
+  if (mode === 'none') return;
+  const { lat, lng } = e.latlng;
+  if (mode === 'depot') addDepot(lat, lng);
+  else if (mode === 'bin') addBin(lat, lng);
+});
+
+// ═══════════════════════════════════════════════
+//  MODE
+// ═══════════════════════════════════════════════
+function setMode(m) {
+  if (mode === m) { mode = 'none'; } else { mode = m; }
+  document.getElementById('btn-depot').classList.toggle('active', mode === 'depot');
+  document.getElementById('btn-bin').classList.toggle('active', mode === 'bin');
+  const ind = document.getElementById('mode-indicator');
+  if (mode === 'none') {
+    ind.classList.remove('active');
+    map.getContainer().style.cursor = '';
+  } else {
+    ind.textContent = mode === 'depot' ? '📍 Click to place DEPOT' : '🗑 Click to place BIN POINT';
+    ind.classList.add('active');
+    map.getContainer().style.cursor = 'crosshair';
+  }
+  document.getElementById('a-mode').textContent = mode === 'none' ? 'IDLE' : mode.toUpperCase();
+}
+
+// ═══════════════════════════════════════════════
+//  ADD POINTS
+// ═══════════════════════════════════════════════
+function makeDepotIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:28px;height:28px;background:#ff6b35;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 28],
+    popupAnchor: [0, -30]
+  });
+}
+function makeBinIcon(n) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:20px;height:20px;background:#39ff7a;border-radius:50%;border:2px solid #0a0f0d;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;font-family:'Space Mono',monospace">${n}</div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -12]
+  });
+}
+
+async function addDepot(lat, lng) {
+
+    try {
+
+        const response = await fetch("/api/depot", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ lat, lng })
+        });
+
+        const data = await response.json();
+
+        console.log(data);
+
+    } catch (err) {
+
+        console.log("DEPOT FETCH ERROR:", err);
+    }
+
+    const id = depots.length + 1;
+
+    const marker = L.marker([lat, lng], {
+        icon: makeDepotIcon(),
+        draggable: true
+    }).addTo(map);
+
+    const label = `Depot D${String(id).padStart(2,'0')}`;
+
+    depots.push({ lat, lng, marker, label });
+
+    updateStats();
+}
+
+async function addBin(lat, lng) {
+
+    try {
+
+        const response = await fetch("/api/bin", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ lat, lng })
+        });
+
+        const data = await response.json();
+
+        console.log(data);
+
+    } catch (err) {
+
+        console.log("BIN FETCH ERROR:", err);
+    }
+
+    const id = bins.length + 1;
+
+    const marker = L.marker([lat, lng], {
+        icon: makeBinIcon(id),
+        draggable: true
+    }).addTo(map);
+
+    const label = `Bin B${String(id).padStart(3,'0')}`;
+
+    bins.push({
+        lat,
+        lng,
+        marker,
+        label,
+        collected: false
+    });
+
+    updateStats();
+
+    updateProgress();
+}
+function removeDepot(i) {
+  if (depots[i]) { map.removeLayer(depots[i].marker); depots.splice(i,1); updateStats(); }
+}
+function removeBin(i) {
+  if (bins[i]) { map.removeLayer(bins[i].marker); bins.splice(i,1); updateStats(); updateProgress(); }
+}
+
+// ═══════════════════════════════════════════════
+//  DISTANCE UTILS
+// ═══════════════════════════════════════════════
+function haversine(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lng - a.lng) * Math.PI / 180;
+  const s = Math.sin(dLat/2) ** 2 + Math.cos(a.lat*Math.PI/180) * Math.cos(b.lat*Math.PI/180) * Math.sin(dLon/2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(s));
+}
+
+function routeLength(pts) {
+  let d = 0;
+  for (let i = 0; i < pts.length - 1; i++) d += haversine(pts[i], pts[i+1]);
+  return d;
+}
+
+// ═══════════════════════════════════════════════
+//  GREEDY ALGORITHM (nearest neighbour)
+// ═══════════════════════════════════════════════
+async function runGreedy() {
+
+    try {
+
+        const response = await fetch("/api/greedy");
+
+        const route = await response.json();
+
+        console.log(route);
+
+        if (!route || route.length === 0) {
+
+            showNotif("Add depots and bins first", "warn");
+
+            return;
+        }
+
+        drawRoute(route, "greedy");
+
+        const dist = routeLength(route).toFixed(2);
+
+        document.getElementById("a-greedy").textContent =
+            dist + " km";
+
+    } catch (error) {
+
+        console.log(error);
+
+        showNotif("Greedy failed", "err");
+    }
+}
+
+async function runTSP() {
+
+    try {
+
+        const response = await fetch("/api/tsp");
+
+        const route = await response.json();
+
+        console.log(route);
+
+        if (!route || route.length === 0) {
+
+            showNotif("Add depots and bins first", "warn");
+
+            return;
+        }
+
+        drawRoute(route, "tsp");
+
+        const dist = routeLength(route).toFixed(2);
+
+        document.getElementById("a-tsp").textContent =
+            dist + " km";
+
+    } catch (error) {
+
+        console.log(error);
+
+        showNotif("TSP failed", "err");
+    }
+}
+
+function drawRoute(pts, type) {
+
+    const coords = pts.map(p => [p.lat, p.lng]);
+
+    if (type === "greedy") {
+
+        if (greedyPolyline) {
+
+            map.removeLayer(greedyPolyline);
+        }
+
+        greedyPolyline = L.polyline(coords, {
+            color: "#00e5ff",
+            weight: 4,
+            opacity: 0.9,
+            dashArray: "8,4"
+        }).addTo(map);
+
+        map.fitBounds(greedyPolyline.getBounds(), {
+            padding: [40, 40]
+        });
+
+    } else if (type === "tsp") {
+
+        if (tspPolyline) {
+
+            map.removeLayer(tspPolyline);
+        }
+
+        tspPolyline = L.polyline(coords, {
+            color: "#ffb627",
+            weight: 4,
+            opacity: 0.9
+        }).addTo(map);
+
+        map.fitBounds(tspPolyline.getBounds(), {
+            padding: [40, 40]
+        });
+    }
+}
+function clearRoutes() {
+
+    if (greedyPolyline) {
+
+        map.removeLayer(greedyPolyline);
+
+        greedyPolyline = null;
+    }
+
+    if (tspPolyline) {
+
+        map.removeLayer(tspPolyline);
+
+        tspPolyline = null;
+    }
+
+    document.getElementById("a-greedy").textContent = "—";
+
+    document.getElementById("a-tsp").textContent = "—";
+
+    document.getElementById("a-improve").textContent = "—";
+
+    addLog("Routes cleared", "warn");
+
+    showNotif("Routes cleared");
+}
+
+async function clearAll() {
+
+    try {
+
+        clearRoutes();
+
+        depots.forEach(d => {
+
+            map.removeLayer(d.marker);
+        });
+
+        bins.forEach(b => {
+
+            map.removeLayer(b.marker);
+        });
+
+        depots = [];
+
+        bins = [];
+
+        updateStats();
+
+        updateProgress();
+
+        await fetch("/api/reset", {
+
+            method: "DELETE"
+        });
+
+        addLog("All points cleared", "err");
+
+        showNotif("Reset complete");
+
+    } catch (error) {
+
+        console.log(error);
+
+        showNotif("Reset failed", "err");
+    }
+}
+
+// ═══════════════════════════════════════════════
+//  UPDATE STATS
+// ═══════════════════════════════════════════════
+function updateStats() {
+  document.getElementById('h-depots').textContent = depots.length;
+  document.getElementById('h-bins').textContent = bins.length;
+  document.getElementById('a-stops').textContent = bins.length + depots.length;
+}
+
+// ═══════════════════════════════════════════════
+//  PROGRESS
+// ═══════════════════════════════════════════════
+function updateProgress() {
+  const total = bins.length;
+  const done = bins.filter(b => b.collected).length;
+  const pct = total === 0 ? 0 : Math.round(done / total * 100);
+  document.getElementById('pct-display').textContent = pct + '%';
+  document.getElementById('main-progress').style.width = pct + '%';
+  document.getElementById('c-done').textContent = done;
+  document.getElementById('c-remain').textContent = total - done;
+
+  // Zone breakdown (rough lat/lng split)
+  const zones = { north: [], south: [], east: [], west: [] };
+  bins.forEach(b => {
+    if (b.lat >= 13.05) zones.north.push(b);
+    else if (b.lat < 12.9) zones.south.push(b);
+    else if (b.lng >= 77.65) zones.east.push(b);
+    else zones.west.push(b);
+  });
+  setZone('north', zones.north);
+  setZone('south', zones.south);
+  setZone('east', zones.east);
+  setZone('west', zones.west);
+}
+
+function setZone(id, arr) {
+  const done = arr.filter(b => b.collected).length;
+  const pct = arr.length === 0 ? 0 : Math.round(done / arr.length * 100);
+  document.getElementById(`z-${id}`).textContent = pct + '%';
+  document.getElementById(`z-${id}-bar`).style.width = pct + '%';
+}
+
+function simulateProgress() {
+  if (bins.length === 0) { showNotif('⚠ Add bin points first', 'warn'); return; }
+  if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; return; }
+  addLog('Simulation started — collecting bins...', 'info');
+  let idx = 0;
+  simulationInterval = setInterval(() => {
+    if (idx >= bins.length) {
+      clearInterval(simulationInterval); simulationInterval = null;
+      addLog('✅ All bins collected! Route complete.', 'info');
+      showNotif('✅ Collection complete!');
+      return;
+    }
+    bins[idx].collected = true;
+    bins[idx].marker.setOpacity(0.4);
+    addLog(`${bins[idx].label} collected`);
+    idx++;
+    updateProgress();
+  }, 600);
+}
+
+function resetProgress() {
+  if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
+  bins.forEach(b => { b.collected = false; b.marker.setOpacity(1); });
+  updateProgress();
+  addLog('Progress reset.', 'warn');
+}
+
+// ═══════════════════════════════════════════════
+//  LOG
+// ═══════════════════════════════════════════════
+function addLog(msg, type) {
+  const log = document.getElementById('route-log');
+  const t = String(logTime).padStart(2,'0') + ':' + String(Math.floor(Math.random()*60)).padStart(2,'0');
+  logTime++;
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${t}</span><span class="log-msg ${type||''}">${msg}</span>`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════
+//  NOTIFICATION
+// ═══════════════════════════════════════════════
+let notifTimer;
+function showNotif(msg, type) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = 'notif show' + (type ? ` ${type}` : '');
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════════════════
+//  COLLAPSE SECTION
+// ═══════════════════════════════════════════════
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// ═══════════════════════════════════════════════
+//  RENDER DRIVERS
+// ═══════════════════════════════════════════════
+function renderDrivers() {
+  renderList('list-duty', DRIVERS.duty, 'duty');
+  renderList('list-avail', DRIVERS.available, 'avail');
+  renderList('list-leave', DRIVERS.leave, 'leave');
+}
+
+function renderList(id, arr, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = arr.map(d => {
+    const initials = d.name.split(' ').map(w=>w[0]).join('').slice(0,2);
+    const badge = { duty: 'ON DUTY', avail: 'AVAILABLE', leave: 'LEAVE' }[type];
+    return `<div class="driver-card">
+      <div class="driver-avatar avatar-${type}">${initials}</div>
+      <div class="driver-info">
+        <div class="driver-name">${d.name}</div>
+        <div class="driver-id">${d.id} · Zone: ${d.zone}</div>
+      </div>
+      <div class="status-badge badge-${type}">${badge}</div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+//  RENDER TRUCKS
+// ═══════════════════════════════════════════════
+function renderTrucks() {
+  renderTruckList('list-inuse', TRUCKS.inuse, 'duty');
+  renderTruckList('list-tavail', TRUCKS.available, 'avail');
+  renderTruckList('list-maint', TRUCKS.maintenance, 'leave');
+}
+
+function renderTruckList(id, arr, type) {
+  const el = document.getElementById(id);
+  const badge = { duty: 'IN USE', avail: 'AVAILABLE', leave: 'MAINTENANCE' }[type];
+  el.innerHTML = arr.map(t => `
+    <div class="truck-card">
+      <div class="truck-icon">${type==='maint'?'🔧':'🚛'}</div>
+      <div class="truck-info">
+        <div class="truck-model">${t.model}</div>
+        <div class="truck-id">${t.id} · Cap: ${t.capacity}</div>
+      </div>
+      <div class="status-badge badge-${type}">${badge}</div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+//  CLOCK
+// ═══════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short' }) + ' · ' +
+    now.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════
+renderDrivers();
+renderTrucks();
+updateStats();
+updateProgress();
+
+console.log("SCRIPT FULLY LOADED");
+console.log(typeof clearRoutes);
+console.log(typeof clearAll);
+console.log(typeof drawRoute);
+
+</script>
+</body>
+</html>
